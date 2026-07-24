@@ -70,6 +70,16 @@ Login is PIN `2526` → pick a role. Each role only sees and can do what's below
 
 This matches Section 3 of the original build spec. Note: since login is PIN + role (no personal name), the audit trail records the **role** that made a change (e.g. "Store Keeper / HSE Officer"), not an individual's name — the "Collected by" field on issuances is still a free-text name for that specific traceability need.
 
+## Troubleshooting a blank page after deploy
+
+If the deployed site loads a blank white screen (no PIN pad, nothing), it means `index.html` loaded but the JavaScript failed before it could draw anything — usually one of these three:
+
+1. **`config.js` wasn't deployed** — open your GitHub repo in the browser and confirm `config.js` is actually sitting next to `index.html` at the repo root (not inside a subfolder, not missing because of a `.gitignore`). If your repo has the `fa-register` folder nested one level deep, set Netlify's **Site settings → Build & deploy → Publish directory** to `fa-register` instead of `.`.
+2. **The Supabase JS library didn't load** — it's pulled from `unpkg.com` at runtime. Some networks block unpkg. Try the site on a different network/device.
+3. **Wrong or placeholder Supabase credentials** in `config.js`.
+
+As of this version, any of these now show an actual error message on screen instead of a blank page — so if you still see blank, open DevTools (F12) → Console tab and share what it says.
+
 ## Using the app
 
 - **Login:** PIN `2526`, then tap your name from the Users list (add your team's names first under **Master Data → Users** once logged in as the seeded "HSE Manager" admin).

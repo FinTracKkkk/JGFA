@@ -3,6 +3,33 @@
 // Vanilla JS PWA — Supabase backend
 // ============================================================
 
+function fatalScreen(title, detail) {
+  const el = document.getElementById('app');
+  if (el) {
+    el.innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa;padding:24px;font-family:sans-serif;">
+        <div style="max-width:480px;background:#fff;border:1px solid #e2e6ed;border-radius:14px;padding:26px 24px;box-shadow:0 8px 32px rgba(20,30,60,.12);">
+          <div style="font-size:15px;font-weight:800;color:#a02529;margin-bottom:8px;">${title}</div>
+          <div style="font-size:13px;color:#444;line-height:1.5;white-space:pre-wrap;">${detail}</div>
+        </div>
+      </div>`;
+  }
+}
+window.addEventListener('error', (e) => {
+  if (!document.getElementById('main-content') && !document.querySelector('.pin-screen')) {
+    fatalScreen('Something went wrong loading the app', (e.error && e.error.message) || e.message || 'Unknown script error. Open DevTools (F12) → Console for details.');
+  }
+});
+
+if (!window.APP_CONFIG || !window.APP_CONFIG.SUPABASE_URL || window.APP_CONFIG.SUPABASE_URL.includes('YOUR-PROJECT')) {
+  fatalScreen('Configuration missing', 'config.js did not load, or SUPABASE_URL/SUPABASE_ANON_KEY are still placeholders.\n\nCheck that config.js was committed to your repo and deployed alongside index.html, and that it has your real Supabase project URL + anon key.');
+  throw new Error('APP_CONFIG missing — stopping init.');
+}
+if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+  fatalScreen('Supabase library failed to load', 'The Supabase JS library (from unpkg.com) did not load in this browser.\n\nThis is usually a network/firewall block on unpkg.com. Try a different network, or check the browser console (F12) for a blocked-request error.');
+  throw new Error('window.supabase missing — stopping init.');
+}
+
 const { SUPABASE_URL, SUPABASE_ANON_KEY, APP_PIN } = window.APP_CONFIG;
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1163,7 +1190,12 @@ function attachPageEvents() {}
 // INIT
 // ============================================================
 async function init() {
-  if (S.user) { await loadAll(); }
-  render();
+  try {
+    if (S.user) { await loadAll(); }
+    render();
+  } catch (e) {
+    console.error(e);
+    fatalScreen('Something went wrong starting the app', e.message || String(e));
+  }
 }
 init();
