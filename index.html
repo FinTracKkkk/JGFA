@@ -9,17 +9,69 @@
 <link rel="icon" href="assets/icon-32.png" />
 <link rel="apple-touch-icon" href="assets/icon-180.png" />
 <link rel="stylesheet" href="styles.css" />
-<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
 <div id="app"></div>
 
-<script src="config.js"></script>
-<script src="app.js"></script>
 <script>
+  // ------------------------------------------------------------
+  // Resilient library loader: tries several CDN mirrors for each
+  // library in turn, so a single blocked/down provider (e.g. some
+  // networks block unpkg.com) doesn't take the whole app down.
+  // Only after Supabase is confirmed loaded do we load config.js
+  // and app.js, so app.js never runs before its dependency exists.
+  // ------------------------------------------------------------
+  function loadScriptFromList(urls, checkFn) {
+    return new Promise((resolve, reject) => {
+      let i = 0;
+      function tryNext() {
+        if (checkFn && checkFn()) { resolve(); return; }
+        if (i >= urls.length) { reject(new Error('All CDN sources failed: ' + urls.join(', '))); return; }
+        const url = urls[i++];
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => { if (!checkFn || checkFn()) resolve(); else tryNext(); };
+        s.onerror = tryNext;
+        document.head.appendChild(s);
+      }
+      tryNext();
+    });
+  }
+  function loadScriptOnce(url) {
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = url; s.onload = resolve; s.onerror = () => resolve(); // best-effort, non-fatal
+      document.head.appendChild(s);
+    });
+  }
+  function fatalBootScreen(detail) {
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa;padding:24px;font-family:sans-serif;">
+        <div style="max-width:480px;background:#fff;border:1px solid #e2e6ed;border-radius:14px;padding:26px 24px;box-shadow:0 8px 32px rgba(20,30,60,.12);">
+          <div style="font-size:15px;font-weight:800;color:#a02529;margin-bottom:8px;">Couldn't load required libraries</div>
+          <div style="font-size:13px;color:#444;line-height:1.5;white-space:pre-wrap;">${detail}</div>
+        </div>
+      </div>`;
+  }
+
+  const SUPABASE_CDNS = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/supabase/2.45.4/supabase.min.js',
+  ];
+
+  loadScriptFromList(SUPABASE_CDNS, () => window.supabase && typeof window.supabase.createClient === 'function')
+    .then(() => Promise.all([
+      loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+      loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js'),
+    ]))
+    .then(() => loadScriptOnce('config.js'))
+    .then(() => loadScriptOnce('app.js'))
+    .catch((err) => {
+      fatalBootScreen('The Supabase library could not be loaded from any CDN (tried jsDelivr, unpkg, and cdnjs).\n\nThis usually means this network is blocking all of them, which is unusual. Try a different network (e.g. mobile data instead of office WiFi), or open the browser console (F12) for the exact network error.\n\n' + (err && err.message ? err.message : ''));
+    });
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
