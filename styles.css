@@ -281,10 +281,6 @@ tr:hover td{background:#fafbfd;}
 .voucher table{font-size:12.5px;}
 
 @media (min-width:900px){
-  .sidebar{transform:translateX(0);position:sticky;box-shadow:none;}
-  .overlay{display:none;}
-  .header .hamburger{display:none;}
-  .shell{display:flex;}
   .main{padding:24px 30px 60px;}
 }
 @media (max-width:899px){
