@@ -87,12 +87,13 @@ function toast(msg, type = '') {
 
 function isAdmin() { return S.user && S.user.role === 'admin'; }
 function isViewer() { return S.user && S.user.role === 'viewer'; }
-// Per the role spec: Admin = full access. Store Keeper/HSE Officer = add stock,
+// Per the role spec: Admin = full access. HSE = add stock,
 // record issuances, view stock levels, generate reports. Department Viewer = read-only.
 function canWrite() { return S.user && (S.user.role === 'admin' || S.user.role === 'store_keeper'); }
+function roleLabel(role) { const r = ROLE_OPTIONS.find(x => x.role === role); return r ? r.label : (role || '').replace('_', ' '); }
 function requireWrite(actionLabel) {
   if (canWrite()) return true;
-  toast(`Your role (${S.user.role.replace('_', ' ')}) is read-only — ${actionLabel} requires Store Keeper or Admin access`, 'error');
+  toast(`Your role (${roleLabel(S.user.role)}) is read-only — ${actionLabel} requires HSE or Admin access`, 'error');
   return false;
 }
 
@@ -151,7 +152,7 @@ async function logAudit(table, recordId, action, fieldChanged, oldVal, newVal) {
 
 // ---------------- Router ----------------
 // roles: which roles can see/use this screen. Matches the spec:
-// Admin = full access. Store Keeper/HSE Officer = stock-in, issuance, reports.
+// Admin = full access. HSE = stock-in, issuance, reports.
 // Department Viewer = read-only (dashboard, register, reports).
 const ROUTES = [
   { id: 'dashboard', label: 'Dashboard', icon: ICONS.dashboard, roles: ['admin', 'store_keeper', 'viewer'] },
@@ -210,7 +211,7 @@ function render() {
         <div style="flex:1;"></div>
         <a onclick="logout()" style="color:#ffb4ac;">${ICONS.logout}<span>Exit</span></a>
       </nav>
-      <div class="sidebar-foot">Signed in as <strong style="color:#fff">${esc(S.user.name)}</strong><br/>Role: ${esc(S.user.role)}</div>
+      <div class="sidebar-foot">Signed in as <strong style="color:#fff">${esc(S.user.name)}</strong><br/>Role: ${esc(roleLabel(S.user.role))}</div>
     </div>
 
     <div class="shell">
@@ -258,7 +259,7 @@ function logout() {
 
 function renderPage() {
   if (!canSeeRoute(S.route)) {
-    return `<div class="empty-state">${svgIcon('<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>')}<p style="margin-top:10px;">Your role (${esc((S.user.role || '').replace('_', ' '))}) doesn't have access to this screen.</p></div>`;
+    return `<div class="empty-state">${svgIcon('<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>')}<p style="margin-top:10px;">Your role (${esc(roleLabel(S.user.role))}) doesn't have access to this screen.</p></div>`;
   }
   switch (S.route) {
     case 'dashboard': return pageDashboard();
@@ -277,7 +278,7 @@ function renderPage() {
 // ============================================================
 const ROLE_OPTIONS = [
   { role: 'admin', label: 'Admin (HSE Manager)', sub: 'Full access — master data, edit/delete, audit log' },
-  { role: 'store_keeper', label: 'Store Keeper / HSE Officer', sub: 'Add stock, issue materials, view reports' },
+  { role: 'store_keeper', label: 'HSE', sub: 'Add stock, issue materials, view reports' },
   { role: 'viewer', label: 'Department Viewer', sub: 'Read-only — view issuance history' },
 ];
 function renderAuth() {
@@ -477,7 +478,7 @@ async function submitStockIn(existing) {
     material_id: fd.get('material_id'), qty: Number(fd.get('qty')),
     batch_no: fd.get('batch_no') || null, expiry_date: fd.get('expiry_date') || null,
     supplier: fd.get('supplier') || null, date_received: fd.get('date_received'),
-    entered_by: S.user.name, entered_by_id: S.user.id, updated_at: new Date().toISOString(),
+    entered_by: S.user.name, entered_by_id: null, updated_at: new Date().toISOString(),
   };
   if (!payload.material_id || !payload.qty || !payload.date_received) { toast('Please fill required fields', 'error'); return; }
   if (existing) {
@@ -560,7 +561,7 @@ function renderIssueLines(mats) {
     </div>`;
   }).join('');
 }
-function issueLineChange(idx, key, val) { issueLines[idx][key] = key === 'qty' ? val : val; rerenderIssueLines(); }
+function issueLineChange(idx, key, val) { issueLines[idx][key] = val; rerenderIssueLines(); }
 function addIssueLine() { issueLines.push({ material_id: '', qty: '' }); rerenderIssueLines(); }
 function removeIssueLine(idx) { if (issueLines.length > 1) issueLines.splice(idx, 1); rerenderIssueLines(); }
 function rerenderIssueLines() {
@@ -575,11 +576,16 @@ async function submitIssuance() {
   if (!fd.get('department_id') || !fd.get('collected_by_name') || !validLines.length) {
     toast('Please complete department, collector name, and at least one material line', 'error'); return;
   }
-  for (const l of validLines) {
-    const bal = stockBalance(l.material_id);
-    if (Number(l.qty) > bal) {
-      const mat = S.data.materials.find(m => m.id === l.material_id);
-      toast(`Cannot issue ${l.qty} ${mat?.unit} of ${mat?.name} — only ${bal} in stock`, 'error');
+  // Aggregate by material first — two lines of the same material must be
+  // validated against stock TOGETHER, not independently (each line alone
+  // could look fine while the combined total oversells the stock).
+  const totalsByMaterial = {};
+  for (const l of validLines) totalsByMaterial[l.material_id] = (totalsByMaterial[l.material_id] || 0) + Number(l.qty);
+  for (const materialId in totalsByMaterial) {
+    const bal = stockBalance(materialId);
+    if (totalsByMaterial[materialId] > bal) {
+      const mat = S.data.materials.find(m => m.id === materialId);
+      toast(`Cannot issue ${totalsByMaterial[materialId]} ${mat?.unit || ''} of ${mat?.name || 'this material'} — only ${bal} in stock`, 'error');
       return;
     }
   }
@@ -587,14 +593,19 @@ async function submitIssuance() {
     department_id: fd.get('department_id'), location_id: fd.get('location_id') || null,
     collected_by_name: fd.get('collected_by_name'), collected_by_id: fd.get('collected_by_id') || null,
     collected_by_designation: fd.get('collected_by_designation') || null,
-    issued_by: S.user.name, issued_by_id: S.user.id, date: fd.get('date'),
+    issued_by: S.user.name, issued_by_id: null, date: fd.get('date'),
     remarks: fd.get('remarks') || null, confirmed: fd.get('confirmed') === 'on',
   };
   const { data: newIss, error } = await sb.from('fa_issuances').insert(issuancePayload).select().single();
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  // Track a running local balance per material so "stock remaining after"
+  // is correct even when this same submission has multiple lines for the
+  // same material (stockBalance() alone won't see the in-progress inserts).
+  const runningBalance = {};
   for (const l of validLines) {
-    const remaining = stockBalance(l.material_id) - Number(l.qty);
-    await sb.from('fa_issuance_items').insert({ issuance_id: newIss.id, material_id: l.material_id, qty_issued: Number(l.qty), stock_remaining_after: remaining });
+    if (!(l.material_id in runningBalance)) runningBalance[l.material_id] = stockBalance(l.material_id);
+    runningBalance[l.material_id] -= Number(l.qty);
+    await sb.from('fa_issuance_items').insert({ issuance_id: newIss.id, material_id: l.material_id, qty_issued: Number(l.qty), stock_remaining_after: runningBalance[l.material_id] });
   }
   toast('Materials issued successfully', 'success');
   issueLines = [{ material_id: '', qty: '' }];

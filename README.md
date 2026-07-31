@@ -56,7 +56,7 @@ That's it — no environment variables needed on Netlify since `config.js` carri
 
 Login is PIN `2526` → pick a role. Each role only sees and can do what's below (enforced in the UI — sidebar hides screens a role can't use, and the pages themselves refuse the action even if reached directly):
 
-| Screen / Action | Admin (HSE Manager) | Store Keeper / HSE Officer | Department Viewer |
+| Screen / Action | Admin (HSE Manager) | HSE | Department Viewer |
 |---|---|---|---|
 | Dashboard | ✔ | ✔ | ✔ |
 | Inventory — view balances | ✔ | ✔ | ✔ |
@@ -68,7 +68,7 @@ Login is PIN `2526` → pick a role. Each role only sees and can do what's below
 | Monthly Checklist | ✔ | ✔ | ✘ |
 | Master Data (materials, departments, locations, users, audit log) | ✔ | ✘ | ✘ |
 
-This matches Section 3 of the original build spec. Note: since login is PIN + role (no personal name), the audit trail records the **role** that made a change (e.g. "Store Keeper / HSE Officer"), not an individual's name — the "Collected by" field on issuances is still a free-text name for that specific traceability need.
+This matches Section 3 of the original build spec. Note: since login is PIN + role (no personal name), the audit trail records the **role** that made a change (e.g. "HSE"), not an individual's name — the "Collected by" field on issuances is still a free-text name for that specific traceability need.
 
 ## Troubleshooting a blank page after deploy
 

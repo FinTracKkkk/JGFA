@@ -159,7 +159,7 @@ on conflict do nothing;
 
 insert into fa_users (name, role) values
   ('HSE Manager', 'admin'),
-  ('Store Keeper', 'store_keeper')
+  ('HSE', 'store_keeper')
 on conflict do nothing;
 
 insert into fa_materials (name, unit, category, reorder_level, expiry_tracked) values
