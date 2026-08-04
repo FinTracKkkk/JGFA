@@ -620,24 +620,23 @@ let registerFilters = { dept: '', material: '', from: '', to: '', collector: '' 
 function pageRegister() {
   const deps = S.data.departments;
   const mats = S.data.materials;
-  let rows = [];
-  S.data.issuances.forEach(iss => {
+  let rows = S.data.issuances.map(iss => {
     const items = S.data.issuanceItems.filter(i => i.issuance_id === iss.id);
-    items.forEach(it => rows.push({ iss, it }));
+    return { iss, items };
   });
-  rows = rows.filter(({ iss, it }) => {
+  rows = rows.filter(({ iss, items }) => {
     if (registerFilters.dept && iss.department_id !== registerFilters.dept) return false;
-    if (registerFilters.material && it.material_id !== registerFilters.material) return false;
+    if (registerFilters.material && !items.some(it => it.material_id === registerFilters.material)) return false;
     if (registerFilters.from && iss.date < registerFilters.from) return false;
     if (registerFilters.to && iss.date > registerFilters.to) return false;
     if (registerFilters.collector && !iss.collected_by_name.toLowerCase().includes(registerFilters.collector.toLowerCase())) return false;
     return true;
   });
-  rows.sort((a, b) => (b.iss.date || '').localeCompare(a.iss.date || ''));
+  rows.sort((a, b) => (b.iss.date || '').localeCompare(a.iss.date || '') || (b.iss.created_at || '').localeCompare(a.iss.created_at || ''));
 
   return `
     <div class="page-title">
-      <div><h1>Issuance Register</h1><div class="sub">Full traceability — who took what, when, and what remains</div></div>
+      <div><h1>Issuance Register</h1><div class="sub">One entry per person/department — click any row to see exactly what they collected</div></div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline btn-sm" onclick="exportRegisterPDF()">${ICONS.pdf} PDF</button>
         <button class="btn btn-outline btn-sm" onclick="shareRegisterPDF()">${ICONS.share} Share</button>
@@ -651,23 +650,27 @@ function pageRegister() {
       <div class="field"><label>Collector name</label><input type="text" placeholder="Search…" value="${esc(registerFilters.collector)}" onkeyup="setRegFilter('collector', this.value)"/></div>
     </div>
     <div class="table-wrap"><table id="register-table">
-      <thead><tr><th>Date</th><th>Department</th><th>Location</th><th>Collected By</th><th>Material</th><th>Qty</th><th>Stock After</th><th>Issued By</th><th>Voucher</th>${isAdmin() ? '<th>Actions</th>' : ''}</tr></thead>
+      <thead><tr><th>Date</th><th>Collected By</th><th>Department</th><th>Location</th><th>Items Collected</th><th>Issued By</th>${isAdmin() ? '<th>Actions</th>' : ''}</tr></thead>
       <tbody>
-        ${rows.length ? rows.map(({ iss, it }) => {
+        ${rows.length ? rows.map(({ iss, items }) => {
           const dep = deps.find(d => d.id === iss.department_id);
           const loc = S.data.locations.find(l => l.id === iss.location_id);
-          const mat = mats.find(m => m.id === it.material_id);
-          return `<tr style="${iss.voided ? 'opacity:.45;text-decoration:line-through;' : ''}">
-            <td>${fmtDate(iss.date)}</td><td>${esc(dep?.name || '—')}</td><td>${esc(loc?.name || '—')}</td>
-            <td>${esc(iss.collected_by_name)}</td><td>${esc(mat?.name || '—')}</td><td>${it.qty_issued}</td>
-            <td>${it.stock_remaining_after ?? '—'}</td><td>${esc(iss.issued_by)}</td>
-            <td><button class="btn btn-ghost btn-sm" onclick="viewVoucher('${iss.id}')">View</button></td>
-            ${isAdmin() ? `<td style="display:flex;gap:6px;">
+          const itemSummary = items.length
+            ? (items.length <= 2
+                ? items.map(it => mats.find(m => m.id === it.material_id)?.name || '—').join(', ')
+                : `${items.length} items`)
+            : '—';
+          return `<tr style="cursor:pointer;${iss.voided ? 'opacity:.45;text-decoration:line-through;' : ''}" onclick="viewVoucher('${iss.id}')">
+            <td>${fmtDate(iss.date)}</td>
+            <td><strong>${esc(iss.collected_by_name)}</strong>${iss.collected_by_designation ? `<div class="stockhint">${esc(iss.collected_by_designation)}</div>` : ''}</td>
+            <td>${esc(dep?.name || '—')}</td><td>${esc(loc?.name || '—')}</td>
+            <td>${esc(itemSummary)}</td><td>${esc(iss.issued_by)}</td>
+            ${isAdmin() ? `<td style="display:flex;gap:6px;" onclick="event.stopPropagation()">
               <button class="iconbtn-sm" onclick="editIssuance('${iss.id}')">${ICONS.edit}</button>
               <button class="iconbtn-sm danger" onclick="deleteIssuance('${iss.id}')">${ICONS.trash}</button>
             </td>` : ''}
           </tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="10">No issuance records match your filters.</td></tr>`}
+        }).join('') : `<tr class="empty-row"><td colspan="7">No issuance records match your filters.</td></tr>`}
       </tbody>
     </table></div>
   `;
@@ -744,6 +747,22 @@ function viewVoucher(issuanceId) {
     { label: 'Share', cls: 'btn-accent', onClick: () => shareVoucherPDF(iss, items, dep, loc) },
   ]);
 }
+function ensurePdfReady() {
+  if (!window.jspdf || typeof window.jspdf.jsPDF !== 'function') {
+    toast('PDF library failed to load — check your internet connection and refresh the page', 'error');
+    return false;
+  }
+  try {
+    if (typeof new window.jspdf.jsPDF().autoTable !== 'function') {
+      toast('PDF table plugin failed to load — check your internet connection and refresh the page', 'error');
+      return false;
+    }
+  } catch (e) {
+    toast('PDF library error — refresh the page and try again', 'error');
+    return false;
+  }
+  return true;
+}
 function voucherPDFDoc(iss, items, dep, loc) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -760,8 +779,9 @@ function voucherPDFDoc(iss, items, dep, loc) {
   if (iss.remarks) doc.text(`Remarks: ${iss.remarks}`, 14, doc.lastAutoTable.finalY + 10);
   return doc;
 }
-function downloadVoucherPDF(iss, items, dep, loc) { voucherPDFDoc(iss, items, dep, loc).save(`Voucher-${iss.collected_by_name}-${iss.date}.pdf`); }
+function downloadVoucherPDF(iss, items, dep, loc) { if (!ensurePdfReady()) return; voucherPDFDoc(iss, items, dep, loc).save(`Voucher-${iss.collected_by_name}-${iss.date}.pdf`); }
 async function shareVoucherPDF(iss, items, dep, loc) {
+  if (!ensurePdfReady()) return;
   const doc = voucherPDFDoc(iss, items, dep, loc);
   const blob = doc.output('blob');
   await sharePDFBlob(blob, `Voucher-${iss.date}.pdf`, 'FA Materials Voucher');
@@ -769,11 +789,20 @@ async function shareVoucherPDF(iss, items, dep, loc) {
 async function sharePDFBlob(blob, filename, title) {
   const file = new File([blob], filename, { type: 'application/pdf' });
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title }); return; } catch (e) { /* fall through */ }
+    try {
+      await navigator.share({ files: [file], title });
+      return;
+    } catch (e) {
+      // AbortError = the person closed the share sheet themselves — do nothing,
+      // don't force a download or show a misleading "not supported" message.
+      if (e && e.name === 'AbortError') return;
+      // Any other failure: fall through to download below.
+    }
   }
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
-  toast('Sharing not supported on this device — PDF downloaded instead', '');
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast('Direct sharing isn\'t available on this device/browser — PDF downloaded instead. You can attach it to WhatsApp manually.', '');
 }
 
 // ============================================================
@@ -859,9 +888,9 @@ function reportPDFDoc() {
   doc.autoTable({ startY: 30, head: [headers], body: rows, headStyles: { fillColor: [30, 62, 115] }, styles: { fontSize: 9 } });
   return doc;
 }
-function exportCurrentReportPDF() { reportPDFDoc().save(`${window._currentReport.title.replace(/\s+/g, '_')}.pdf`); }
-async function shareCurrentReportPDF() { const doc = reportPDFDoc(); await sharePDFBlob(doc.output('blob'), `${window._currentReport.title.replace(/\s+/g, '_')}.pdf`, window._currentReport.title); }
-function exportRegisterPDF() {
+function exportCurrentReportPDF() { if (!ensurePdfReady()) return; reportPDFDoc().save(`${window._currentReport.title.replace(/\s+/g, '_')}.pdf`); }
+async function shareCurrentReportPDF() { if (!ensurePdfReady()) return; const doc = reportPDFDoc(); await sharePDFBlob(doc.output('blob'), `${window._currentReport.title.replace(/\s+/g, '_')}.pdf`, window._currentReport.title); }
+function registerPDFDoc() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('l');
   doc.setFontSize(15); doc.setTextColor(30, 62, 115); doc.text('Joseph Group — Issuance Register', 14, 16);
@@ -874,21 +903,12 @@ function exportRegisterPDF() {
     });
   });
   doc.autoTable({ startY: 24, head: [['Date', 'Department', 'Collected By', 'Material', 'Qty', 'Stock After', 'Issued By']], body: rows, headStyles: { fillColor: [30, 62, 115] }, styles: { fontSize: 8 } });
-  doc.save('Issuance_Register.pdf');
+  return doc;
 }
+function exportRegisterPDF() { if (!ensurePdfReady()) return; registerPDFDoc().save('Issuance_Register.pdf'); }
 async function shareRegisterPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('l');
-  doc.setFontSize(15); doc.text('Joseph Group — Issuance Register', 14, 16);
-  const rows = [];
-  S.data.issuances.forEach(iss => {
-    S.data.issuanceItems.filter(i => i.issuance_id === iss.id).forEach(it => {
-      const dep = S.data.departments.find(d => d.id === iss.department_id);
-      const mat = S.data.materials.find(m => m.id === it.material_id);
-      rows.push([fmtDate(iss.date), dep?.name || '—', iss.collected_by_name, mat?.name || '—', it.qty_issued, it.stock_remaining_after ?? '—', iss.issued_by]);
-    });
-  });
-  doc.autoTable({ startY: 24, head: [['Date', 'Department', 'Collected By', 'Material', 'Qty', 'Stock After', 'Issued By']], body: rows, styles: { fontSize: 8 } });
+  if (!ensurePdfReady()) return;
+  const doc = registerPDFDoc();
   await sharePDFBlob(doc.output('blob'), 'Issuance_Register.pdf', 'Issuance Register');
 }
 

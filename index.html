@@ -61,11 +61,21 @@
     'https://cdnjs.cloudflare.com/ajax/libs/supabase/2.45.4/supabase.min.js',
   ];
 
+  const JSPDF_CDNS = [
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
+  ];
+  const AUTOTABLE_CDNS = [
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js',
+  ];
+
   loadScriptFromList(SUPABASE_CDNS, () => window.supabase && typeof window.supabase.createClient === 'function')
-    .then(() => Promise.all([
-      loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
-      loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js'),
-    ]))
+    .then(() => loadScriptFromList(JSPDF_CDNS, () => window.jspdf && typeof window.jspdf.jsPDF === 'function'))
+    .then(() => loadScriptFromList(AUTOTABLE_CDNS, () => {
+      // autoTable attaches to jsPDF's prototype — confirm it actually landed
+      try { return typeof new window.jspdf.jsPDF().autoTable === 'function'; } catch (e) { return false; }
+    }).catch((e) => { console.warn('PDF export plugin failed to load; PDF/share buttons will show an error instead of failing silently.', e); }))
     .then(() => loadScriptOnce('config.js'))
     .then(() => loadScriptOnce('app.js'))
     .catch((err) => {
